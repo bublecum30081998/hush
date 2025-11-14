@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Растение</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const supabaseUrl = "https://pdveezakbmzdzoaszlye.supabase.co";
+  const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkdmVlemFrYm16ZHpvYXN6bHllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMzUxNzQsImV4cCI6MjA3ODcxMTE3NH0.4IAQTx7-xHa-N5361jFqkkKUI3aimC2BJ6XgGr7PYCQ";
+  const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+  let currentUser = null;
+
+  async function signInIfNeeded() {
+    const { data:{ user } } = await supabase.auth.getUser();
+    if (user) { currentUser = user; return; }
+    const email = "guest_" + Math.random().toString(36).slice(2) + "@game.com";
+    const password = crypto.randomUUID();
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (!error) currentUser = data.user;
+  }
+
+  async function saveProgressSupabase(state){
+    if(!currentUser) await signInIfNeeded();
+    await supabase.from('player_progress').upsert({
+      user_id: currentUser.id,
+      money: state.money,
+      level: state.level,
+      stage: state.stage
+    });
+  }
+
+  async function loadProgressSupabase(){
+    if(!currentUser) await signInIfNeeded();
+    const { data } = await supabase.from('player_progress').select('*').eq('user_id', currentUser.id).single();
+    if(!data) return null;
+    return { money:data.money, level:data.level, stage:data.stage };
+  }
+</script>
+
+<style>
+  html,body{height:100%;overflow:hidden;touch-action:none;}
+  body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;user-select:none;}
+  #game-container{
+    width:100%;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+    background-size:cover;background-position:center;transition:background-image 1s ease-in-out;position:relative;
+  }
+
+  #currency-display{
+    position:absolute;top:10px;right:20px;
+    background:rgba(0,0,0,0.6);color:#ffd700;border-radius:10px;
+    padding:8px 12px;font-weight:bold;z-index:1000;font-size:1.1rem;
+    text-shadow:0 0 6px rgba(255,215,0,0.7),0 0 12px rgba(255,215,0,0.4);
+  }
+
+  #lamp-toggle{
+    position:absolute;top:60px;right:20px;background:rgba(0,0,0,0.6);color:white;
+    border-radius:10px;padding:8px 12px;z-index:1000;cursor:pointer;font-size:1.2rem;
+    transition:background .3s ease;
+  }
+  #lamp-toggle:hover{background:rgba(255,255,255,0.25);}
+  #fullscreen-toggle{position:absolute;top:110px;right:20px;background:rgba(0,0,0,0.6);color:white;border-radius:10px;padding:8px 12px;z-index:1000;cursor:pointer;font-size:1.2rem;transition:background .3s ease;}
+  #fullscreen-toggle:hover{background:rgba(255,255,255,0.25);}
+
+  .exp-bar{position:absolute;top:40px;left:50%;transform:translateX(-50%);
+    width:40%;height:18px;background:rgba(255,255,255,0.18);
+    border-radius:9px;overflow:hidden;z-index:1000;display:flex;align-items:center;justify-content:center;}
+  .exp-fill{position:absolute;left:0;top:0;height:100%;background:dodgerblue;width:0%;transition:width .35s ease;}
+  .exp-text{position:relative;z-index:10;color:white;font-weight:700;text-shadow:0 0 5px rgba(0,0,0,0.8);font-size:0.9rem;}
+  .progress-bar{width:100%;height:8px;background:rgba(255,255,255,0.14);position:relative;}
+  .progress-fill{height:100%;background:limegreen;width:0%;transition:width .5s ease;}
+
+  #plant-area{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;padding:24px;box-sizing:border-box;position:relative;}
+  #plant-image{transform:scale(1.5) translateY(-40px);max-height:85%;max-width:90%;
+    transition:opacity 2s ease-in-out,transform .2s ease-in-out,filter 1s ease;display:block;}
+  .glow{filter:drop-shadow(0 0 25px rgba(180,0,255,0.8))drop-shadow(0 0 60px rgba(180,0,255,0.5))drop-shadow(0 0 90px rgba(180,0,255,0.3));}
+  .fade-out{opacity:0!important;transition:opacity 2s ease-in-out;}
+  .fade-in{opacity:1!important;transition:opacity 2s ease-in-out;}
+  .shake{animation:shake .35s;}
+  @keyframes shake{
+    0%,100%{transform:translate(0,0)rotate(0deg)scale(1.5)translateY(-40px);}
+    20%{transform:translate(-4px,2px)rotate(-2deg)scale(1.5)translateY(-40px);}
+    40%{transform:translate(4px,-2px)rotate(2deg)scale(1.5)translateY(-40px);}
+    60%{transform:translate(-2px,1px)rotate(-1deg)scale(1.5)translateY(-40px);}
+    80%{transform:translate(2px,-1px)rotate(1deg)scale(1.5)translateY(-40px);}
+  }
+
+  .resources-row{width:100%;padding:16px 24px 28px;box-sizing:border-box;display:flex;justify-content:center;gap:48px;}
+  .resource-wrap{position:relative;width:80px;height:100px;display:flex;flex-direction:column;align-items:center;}
+  .price-label{font-size:1rem;font-weight:700;color:white;text-shadow:0 0 4px rgba(0,0,0,0.7);margin-bottom:6px;}
+  .resource-button{width:80px;height:80px;border:none;background:none;cursor:pointer;position:relative;padding:0;}
+  .resource-button img{width:100%;height:100%;object-fit:contain;pointer-events:none;}
+  .resource-button:hover{transform:scale(1.05);}
+  .resource-button{touch-action:none;-webkit-user-drag:none;user-select:none;cursor:grab;position:relative;}
+
+  .cooldown-ring{
+    position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;
+  }
+  .cooldown-ring circle{
+    fill:none;stroke-width:8;stroke-linecap:round;
+    stroke-dasharray:213.6;stroke-dashoffset:213.6;
+    transform:rotate(-90deg);transform-origin:50% 50%;
+    transition:stroke-dashoffset linear;
+  }
+
+  .coin-popup{position:absolute;left:50%;transform:translateX(-50%);pointer-events:none;font-weight:800;
+    color:gold;text-shadow:0 2px 6px rgba(0,0,0,0.6);font-size:1.2rem;}
+  .no-money{filter:drop-shadow(0 0 15px red);animation:shake .35s;}
+</style>
+</head>
+<body>
+  <div id="game-container">
+    <div id="currency-display">$ <span id="money">0</span></div>
+    <div id="lamp-toggle">☀️</div>
+    <div id="fullscreen-toggle">⛶</div>
+
+
+    <div class="exp-bar"><div id="exp-fill" class="exp-fill"></div><div id="exp-text" class="exp-text">Уровень 1</div></div>
+    <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+
+    <div id="plant-area"><img id="plant-image" src="./01.png" alt="Растение"></div>
+
+    <div class="resources-row">
+      <div class="resource-wrap">
+        <div class="price-label">50$</div>
+        <button id="water-button" class="resource-button">
+          <svg class="cooldown-ring"><circle cx="40" cy="40" r="34" stroke="deepskyblue"></circle></svg>
+          <img src="./h2o.png" alt="H2O">
+        </button>
+      </div>
+      <div class="resource-wrap">
+        <div class="price-label">150$</div>
+        <button id="fertilizer-button" class="resource-button">
+          <svg class="cooldown-ring"><circle cx="40" cy="40" r="34" stroke="limegreen"></circle></svg>
+          <img src="./npk.png" alt="NPK">
+        </button>
+      </div>
+      <div class="resource-wrap">
+        <div class="price-label">250$</div>
+        <button id="co2-button" class="resource-button">
+          <svg class="cooldown-ring"><circle cx="40" cy="40" r="34" stroke="violet"></circle></svg>
+          <img src="./co2.png" alt="CO2">
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const PLANT_IMAGES = Array.from({length:19},(_,i)=>`./${String(i+1).padStart(2,'0')}.png`);
+const BACKGROUNDS = {day:"./day.png", night:"./night.png"};
+const PRICES = {water:50, fertilizer:150, co2:250};
+const EXP_VALUES = {water:20, fertilizer:50, co2:100};
+const COOLDOWNS = {water:5000, fertilizer:10000, co2:20000};
+
+
+async function initialLoad(){
+  const cloud = await loadProgressSupabase();
+  if(cloud){
+    state.money = cloud.money;
+    state.level = cloud.level;
+    state.stage = cloud.stage;
+  }
+  uAll();
+}
+document.addEventListener('DOMContentLoaded', initialLoad);
+
+let state = JSON.parse(localStorage.getItem("plantGameState")) || {stage:0, level:1, exp:0, expToNext:100, money:0, clickReward:10};
+const g=document.getElementById("game-container"), pA=document.getElementById("plant-area"), pI=document.getElementById("plant-image"),
+m=document.getElementById("money"), expF=document.getElementById("exp-fill"), progF=document.getElementById("progress-fill"),
+expT=document.getElementById("exp-text"), lamp=document.getElementById("lamp-toggle");
+let isDay = true;
+
+function toggleBG(){isDay=!isDay;g.style.backgroundImage=`url(${isDay?BACKGROUNDS.day:BACKGROUNDS.night})`;lamp.textContent=isDay?"☀️":"🌙";}
+g.style.backgroundImage=`url(${BACKGROUNDS.day})`;
+
+
+function save(){
+  localStorage.setItem("plantGameState", JSON.stringify(state));
+  saveProgressSupabase(state);
+}
+
+function uExp(){expF.style.width=`${(state.exp/state.expToNext)*100}%`;expT.textContent=`Уровень ${state.level}`;}
+function uProg(){progF.style.width=`${(state.stage/(PLANT_IMAGES.length-1))*100}%`;}
+function uAll(){pI.src=PLANT_IMAGES[state.stage];m.textContent=state.money;uExp();uProg();}
+
+function addExp(a){
+  state.exp += a;
+  while(state.exp >= state.expToNext){
+    state.exp -= state.expToNext;
+    state.level++;
+    state.expToNext += 100;
+
+    
+
+    // переход стадии
+    state.stage++;
+    if(state.stage >= PLANT_IMAGES.length){
+      pI.classList.add('fade-out');
+      setTimeout(()=>{
+        state.stage = 0;
+        pI.src = PLANT_IMAGES[state.stage];
+        pI.classList.remove('fade-out');
+        void pI.offsetWidth;
+        pI.classList.add('fade-in');
+        setTimeout(()=>{pI.classList.remove('fade-in');uAll();save();},2000);
+      },3000);
+    }
+  }
+  uAll(); save();
+}
+
+function startCooldown(type){
+  const btn=document.getElementById(type+"-button");
+  const ring=btn.querySelector(".cooldown-ring circle");
+  if(btn.classList.contains("cooling"))return;
+  btn.classList.add("cooling"); btn.disabled=true;
+  const dur=COOLDOWNS[type];
+  ring.style.transition=`stroke-dashoffset ${dur}ms linear`;
+  ring.style.strokeDashoffset="0";
+  setTimeout(()=>{
+    ring.style.transition="none";
+    ring.style.strokeDashoffset="213.6";
+    btn.classList.remove("cooling"); btn.disabled=false;
+  },dur);
+}
+
+function useResource(type){
+  const btn = document.getElementById(type + '-button');
+  if (btn.classList.contains('cooling')) return;
+  const cost=PRICES[type];
+  if(state.money>=cost){
+
+    state.money-=cost;
+    addExp(EXP_VALUES[type]);
+    startCooldown(type);
+  
+} else {
+  const btn=document.getElementById(type+"-button");
+  btn.classList.add('no-money');
+  setTimeout(()=>btn.classList.remove('no-money'),400);
+  playSound(soundNo);
+}
+  save();uAll();
+}
+
+
+pI.onclick = () => {
+  playSound(soundTap);
+  const a = state.level; // прибыль за тап = уровень
+  state.money += a;
+  const txt = document.createElement('div');
+  txt.className = 'coin-popup';
+  txt.textContent = `+${a}$`;
+  txt.style.top = '50%';
+  pA.appendChild(txt);
+  txt.animate(
+    [{transform: 'translate(-50%,0)', opacity: 1}, {transform: 'translate(-50%,-60px)', opacity: 0}],
+    {duration: 1000, easing: 'ease-out'}
+  );
+  setTimeout(() => txt.remove(), 1000);
+  pI.classList.add('shake', 'glow');
+  setTimeout(() => pI.classList.remove('shake'), 350);
+  setTimeout(() => pI.classList.remove('glow'), 1000);
+  m.textContent = state.money;
+  save();
+};
+
+
+lamp.onclick=toggleBG;
+
+const fullscreenBtn = document.getElementById('fullscreen-toggle');
+fullscreenBtn.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => console.log(err));
+  } else {
+    document.exitFullscreen();
+  }
+});
+
+
+// === Новая система Drag & Drop для ресурсов ===
+['water','fertilizer','co2'].forEach(type => {
+  const btn = document.getElementById(type + '-button');
+  btn.setAttribute('draggable', true);
+
+  btn.addEventListener('dragstart', e => {
+    if (btn.classList.contains('cooling')) { e.preventDefault(); return; }
+    btn.style.transform = 'scale(1.5)';
+    btn.style.transition = 'transform 0.2s ease';
+    e.dataTransfer.setData('text/plain', type);
+  });
+
+  btn.addEventListener('dragend', () => {
+    btn.style.transform = 'scale(1)';
+  });
+});
+
+const plant = document.getElementById('plant-image');
+
+plant.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+plant.addEventListener('dragenter', e => { e.preventDefault(); });
+plant.addEventListener('dragleave', e => { /* noop */ });
+
+plant.addEventListener('drop', e => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData('text/plain');
+  if(!type) return;
+  useResource(type);
+  switch(type){
+    case 'water': playSound(soundH2O); break;
+    case 'fertilizer': playSound(soundNPK); break;
+    case 'co2': playSound(soundCO2); break;
+  }
+});
+// === Конец новой системы ===
+
+// === Универсальная система Drag & Drop (ПК + мобильные, исправленная) ===
+['water','fertilizer','co2'].forEach(type => {
+  const btn = document.getElementById(type + '-button');
+  btn.setAttribute('draggable', true);
+  btn.style.cursor = 'grab';
+
+  // --- ПК drag ---
+  btn.addEventListener('dragstart', e => {
+    if (btn.classList.contains('cooling')) { e.preventDefault(); return; }
+    e.dataTransfer.setData('text/plain', type);
+    btn.style.transform = 'scale(1.5)';
+  });
+  btn.addEventListener('dragend', () => { btn.style.transform = 'scale(1)'; });
+
+  // --- Мобильная эмуляция ---
+  btn.addEventListener('touchstart', e => {
+    if (btn.classList.contains('cooling')) { e.preventDefault(); return; }
+    e.preventDefault();
+    const touch = e.touches[0];
+    btn.style.transform = 'scale(1.5)';
+    btn.style.position = 'fixed';
+    btn.style.zIndex = 2000;
+
+    const moveHandler = moveEv => {
+      const t = moveEv.touches[0];
+      btn.style.left = (t.clientX - 40) + 'px';
+      btn.style.top = (t.clientY - 40) + 'px';
+    };
+
+    const endHandler = endEv => {
+      btn.style.transform = 'scale(1)';
+      btn.style.position = '';
+      btn.style.left = '';
+      btn.style.top = '';
+      btn.style.zIndex = '';
+
+      const t = endEv.changedTouches[0];
+      btn.style.visibility = 'hidden';
+      const elemBelow = document.elementFromPoint(t.clientX, t.clientY);
+      btn.style.visibility = 'visible';
+
+      if (elemBelow && elemBelow.id === 'plant-image') {
+        useResource(type);
+        switch(type){
+          case 'water': playSound(soundH2O); break;
+          case 'fertilizer': playSound(soundNPK); break;
+          case 'co2': playSound(soundCO2); break;
+        }
+      }
+
+      window.removeEventListener('touchmove', moveHandler);
+      window.removeEventListener('touchend', endHandler);
+    };
+
+    window.addEventListener('touchmove', moveHandler, {passive:false});
+    window.addEventListener('touchend', endHandler);
+  }, {passive:false});
+});
+// === Конец универсальной системы ===
+
+
+
+
+
+
+
+
+
+
+
+uAll();
+</script>
+
+
+<!-- 🎵 Звуки -->
+<audio id="sound-h2o" src="sound/h2o.mp3"></audio>
+<audio id="sound-npk" src="sound/npk.mp3"></audio>
+<audio id="sound-co2" src="sound/co2.mp3"></audio>
+<audio id="sound-tap" src="sound/tap.mp3"></audio>
+<audio id="sound-no" src="sound/no.mp3"></audio>
+
+<script>
+const soundH2O = document.getElementById('sound-h2o');
+const soundNPK = document.getElementById('sound-npk');
+const soundCO2 = document.getElementById('sound-co2');
+const soundTap = document.getElementById('sound-tap');
+const soundNo = document.getElementById('sound-no');
+
+function playSound(sound) {
+  sound.currentTime = 0;
+  sound.play();
+}
+
+// Тап по растению
+document.getElementById('plant-image').addEventListener('click', () => playSound(soundTap));
+</script>
+
+
+
+
+
+<!-- AUTO TELEGRAM USERNAME (WebApp) -->
+<style>
+#player-name-display {
+  position:absolute;
+  top:10px;
+  left:50%;
+  transform:translateX(-50%);
+  font-size:1.2rem;
+  font-weight:700;
+  color:#ffd700;
+  text-shadow:0 0 8px rgba(255,215,0,0.8);
+  z-index:1000;
+}
+</style>
+
+<div id="player-name-display"></div>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+(function(){
+
+  function setName(name){
+    const el = document.getElementById('player-name-display');
+    if(el) el.textContent = name;
+    try { localStorage.setItem('tg_username', name); } catch(e){}
+  }
+
+  let tgName = null;
+
+  try {
+    if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe) {
+        const user = Telegram.WebApp.initDataUnsafe.user;
+        if (user && user.username) tgName = user.username;
+    }
+  } catch (e) {
+    console.warn("Telegram WebApp username error", e);
+  }
+
+  if (tgName) {
+      setName(tgName);
+  } else {
+      let stored = localStorage.getItem('tg_username');
+      if(!stored){
+          stored = "player_" + Math.random().toString(36).slice(2,8);
+      }
+      setName(stored);
+  }
+
+})();
+</script>
+<!-- END AUTO TELEGRAM USERNAME -->
+
+</body>
+</html>
+
+</html>
